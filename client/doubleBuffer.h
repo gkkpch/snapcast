@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,6 +22,12 @@
 #include<deque>
 #include<algorithm>
 
+
+/// Size limited queue
+/**
+ * Size limited queue with basic statistic functions:
+ * median, mean, percentile
+ */
 template <class T>
 class DoubleBuffer
 {
@@ -37,6 +43,7 @@ public:
 			buffer.pop_front();
 	}
 
+	/// Median as mean over N values around the median
 	T median(unsigned int mean = 1) const
 	{
 		if (buffer.empty())

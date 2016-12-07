@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 ***/
 
 #include "stream.h"
+#include <cmath>
 #include <iostream>
 #include <string.h>
 #include "common/log.h"
@@ -27,7 +28,7 @@ using namespace std;
 namespace cs = chronos;
 
 
-Stream::Stream(const msg::SampleFormat& sampleFormat) : format_(sampleFormat), sleep_(0), median_(0), shortMedian_(0), lastUpdate_(0), playedFrames_(0), bufferMs_(cs::msec(500))
+Stream::Stream(const SampleFormat& sampleFormat) : format_(sampleFormat), sleep_(0), median_(0), shortMedian_(0), lastUpdate_(0), playedFrames_(0), bufferMs_(cs::msec(500))
 {
 	buffer_.setSize(500);
 	shortBuffer_.setSize(100);
@@ -66,6 +67,7 @@ void Stream::clearChunks()
 {
 	while (chunks_.size() > 0)
 		chunks_.pop();
+	resetBuffers();
 }
 
 
@@ -74,26 +76,22 @@ void Stream::addChunk(msg::PcmChunk* chunk)
 	while (chunks_.size() * chunk->duration<cs::msec>().count() > 10000)
 		chunks_.pop();
 	chunks_.push(shared_ptr<msg::PcmChunk>(chunk));
-	std::unique_lock<std::mutex> lck(cvMutex_);
-	cv_.notify_one();
-//	logD << "new chunk: " << chunk_->getDuration() << ", Chunks: " << chunks_.size() << "\n";
+//	logD << "new chunk: " << chunk->duration<cs::msec>().count() << ", Chunks: " << chunks_.size() << "\n";
 }
 
 
 bool Stream::waitForChunk(size_t ms) const
 {
-	std::unique_lock<std::mutex> lck(cvMutex_);
-	cv_.wait_for(lck, std::chrono::milliseconds(ms));
-	return !chunks_.empty();
+	return chunks_.wait_for(std::chrono::milliseconds(ms));
 }
 
 
 
-cs::time_point_hrc Stream::getSilentPlayerChunk(void* outputBuffer, unsigned long framesPerBuffer)
+cs::time_point_clk Stream::getSilentPlayerChunk(void* outputBuffer, unsigned long framesPerBuffer)
 {
 	if (!chunk_)
 		chunk_ = chunks_.pop();
-	cs::time_point_hrc tp = chunk_->start();
+	cs::time_point_clk tp = chunk_->start();
 	memset(outputBuffer, 0, framesPerBuffer * format_.frameSize);
 	return tp;
 }
@@ -117,7 +115,7 @@ time_point_ms Stream::seekTo(const time_point_ms& to)
 */
 
 /*
-time_point_hrc Stream::seek(long ms)
+time_point_clk Stream::seek(long ms)
 {
 	if (!chunk)
 		chunk_ = chunks_.pop();
@@ -137,12 +135,12 @@ time_point_hrc Stream::seek(long ms)
 */
 
 
-cs::time_point_hrc Stream::getNextPlayerChunk(void* outputBuffer, const cs::usec& timeout, unsigned long framesPerBuffer)
+cs::time_point_clk Stream::getNextPlayerChunk(void* outputBuffer, const cs::usec& timeout, unsigned long framesPerBuffer)
 {
 	if (!chunk_ && !chunks_.try_pop(chunk_, timeout))
 		throw 0;
 
-	cs::time_point_hrc tp = chunk_->start();
+	cs::time_point_clk tp = chunk_->start();
 	char* buffer = (char*)outputBuffer;
 	unsigned long read = 0;
 	while (read < framesPerBuffer)
@@ -155,18 +153,18 @@ cs::time_point_hrc Stream::getNextPlayerChunk(void* outputBuffer, const cs::usec
 }
 
 
-cs::time_point_hrc Stream::getNextPlayerChunk(void* outputBuffer, const cs::usec& timeout, unsigned long framesPerBuffer, long framesCorrection)
+cs::time_point_clk Stream::getNextPlayerChunk(void* outputBuffer, const cs::usec& timeout, unsigned long framesPerBuffer, long framesCorrection)
 {
 	if (framesCorrection == 0)
 		return getNextPlayerChunk(outputBuffer, timeout, framesPerBuffer);
 
 	long toRead = framesPerBuffer + framesCorrection;
 	char* buffer = (char*)malloc(toRead * format_.frameSize);
-	cs::time_point_hrc tp = getNextPlayerChunk(buffer, timeout, toRead);
+	cs::time_point_clk tp = getNextPlayerChunk(buffer, timeout, toRead);
 
 	float factor = (float)toRead / framesPerBuffer;//(float)(framesPerBuffer*channels_);
-	if (abs(framesCorrection) > 1)
-		logO << "correction: " << framesCorrection << ", factor: " << factor << "\n";
+//	if (abs(framesCorrection) > 1)
+//		logO << "correction: " << framesCorrection << ", factor: " << factor << "\n";
 	float idx = 0;
 	for (size_t n=0; n<framesPerBuffer; ++n)
 	{
@@ -222,6 +220,7 @@ bool Stream::getPlayerChunk(void* outputBuffer, const cs::usec& outputBufferDacT
 	/// age < 0 => play in -age
 	/// age > 0 => too old
 	cs::usec age = std::chrono::duration_cast<cs::usec>(TimeProvider::serverNow() - chunk_->start()) - bufferMs_ + outputBufferDacTime;
+//	logO << "age: " << age.count() / 1000 << "\n";
 	if ((sleep_.count() == 0) && (cs::abs(age) > cs::msec(200)))
 	{
 		logO << "age > 200: " << cs::duration<cs::msec>(age) << "\n";
@@ -305,7 +304,7 @@ bool Stream::getPlayerChunk(void* outputBuffer, const cs::usec& outputBufferDacT
 				if (cs::usec(abs(median_)) > cs::msec(1))
 				{
 					logO << "pBuffer->full() && (abs(median_) > 1): " << median_ << "\n";
-					sleep_ = cs::usec(shortMedian_);
+					sleep_ = cs::usec(median_);
 				}
 /*				else if (cs::usec(median_) > cs::usec(300))
 				{
@@ -337,7 +336,13 @@ bool Stream::getPlayerChunk(void* outputBuffer, const cs::usec& outputBufferDacT
 
 		if (sleep_.count() != 0)
 		{
-			logO << "Sleep " << cs::duration<cs::msec>(sleep_) << ", age: " << cs::duration<cs::msec>(age) << ", bufferDuration: " << cs::duration<cs::msec>(bufferDuration) << "\n";
+			static int lastAge(0);
+			int msAge = cs::duration<cs::msec>(age);
+			if (lastAge != msAge) 
+			{
+				lastAge = msAge;
+				logO << "Sleep " << cs::duration<cs::msec>(sleep_) << ", age: " << msAge << ", bufferDuration: " << cs::duration<cs::msec>(bufferDuration) << "\n";
+			}
 		}
 		else if (shortBuffer_.full())
 		{
@@ -357,8 +362,9 @@ bool Stream::getPlayerChunk(void* outputBuffer, const cs::usec& outputBufferDacT
 			median_ = buffer_.median();
 			shortMedian_ = shortBuffer_.median();
 			logO << "Chunk: " << age.count()/100 << "\t" << miniBuffer_.median()/100 << "\t" << shortMedian_/100 << "\t" << median_/100 << "\t" << buffer_.size() << "\t" << cs::duration<cs::msec>(outputBufferDacTime) << "\n";
+//			logO << "Chunk: " << age.count()/1000 << "\t" << miniBuffer_.median()/1000 << "\t" << shortMedian_/1000 << "\t" << median_/1000 << "\t" << buffer_.size() << "\t" << cs::duration<cs::msec>(outputBufferDacTime) << "\n";
 		}
-		return true;
+		return (abs(cs::duration<cs::msec>(age)) < 500);
 	}
 	catch(int e)
 	{

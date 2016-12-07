@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,8 +18,11 @@
 
 #ifndef DECODER_H
 #define DECODER_H
+#include <mutex>
 #include "message/pcmChunk.h"
-#include "message/header.h"
+#include "message/codecHeader.h"
+#include "common/sampleFormat.h"
+
 
 class Decoder
 {
@@ -27,7 +30,10 @@ public:
 	Decoder() {};
 	virtual ~Decoder() {};
 	virtual bool decode(msg::PcmChunk* chunk) = 0;
-	virtual bool setHeader(msg::Header* chunk) = 0;
+	virtual SampleFormat setHeader(msg::CodecHeader* chunk) = 0;
+
+protected:
+	std::mutex mutex_;
 };
 
 

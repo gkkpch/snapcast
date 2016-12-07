@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,8 +23,8 @@
 #include <memory>
 
 #include "message/pcmChunk.h"
-#include "message/header.h"
-#include "message/sampleFormat.h"
+#include "message/codecHeader.h"
+#include "common/sampleFormat.h"
 
 
 class Encoder;
@@ -56,12 +56,10 @@ public:
 
 	virtual ~Encoder()
 	{
-		if (headerChunk_ != NULL)
-			delete headerChunk_;
 	}
 
 	/// The listener will receive the encoded stream
-	virtual void init(EncoderListener* listener, const msg::SampleFormat& format)
+	virtual void init(EncoderListener* listener, const SampleFormat& format)
 	{
 		if (codecOptions_ == "")
 			codecOptions_ = getDefaultOptions();
@@ -86,7 +84,7 @@ public:
 	}
 
 	/// Header information needed to decode the data
-	virtual msg::Header* getHeader() const
+	virtual std::shared_ptr<msg::CodecHeader> getHeader() const
 	{
 		return headerChunk_;
 	}
@@ -94,8 +92,8 @@ public:
 protected:
 	virtual void initEncoder() = 0;
 
-	msg::SampleFormat sampleFormat_;
-	msg::Header* headerChunk_;
+	SampleFormat sampleFormat_;
+	std::shared_ptr<msg::CodecHeader> headerChunk_;
 	EncoderListener* listener_;
 	std::string codecOptions_;
 };

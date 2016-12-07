@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,30 +18,35 @@
 
 #include <iostream>
 #include <sys/resource.h>
-#include <boost/lexical_cast.hpp>
-#include <boost/program_options.hpp>
 
+#include "popl.hpp"
+#include "controller.h"
+#include "browseZeroConf/browsemDNS.h"
+
+#ifdef HAS_ALSA
+#include "player/alsaPlayer.h"
+#endif
+#ifdef HAS_DAEMON
 #include "common/daemon.h"
+#endif
 #include "common/log.h"
 #include "common/signalHandler.h"
-#include "controller.h"
-#include "alsaPlayer.h"
-#include "browseAvahi.h"
+#include "common/strCompat.h"
 
 
 using namespace std;
-namespace po = boost::program_options;
+using namespace popl;
 
-bool g_terminated = false;
+volatile sig_atomic_t g_terminated = false;
 
 PcmDevice getPcmDevice(const std::string& soundcard)
 {
-	vector<PcmDevice> pcmDevices = Player::pcm_list();
-	int soundcardIdx = -1;
+#ifdef HAS_ALSA
+	vector<PcmDevice> pcmDevices = AlsaPlayer::pcm_list();
 
 	try
 	{
-		soundcardIdx = boost::lexical_cast<int>(soundcard);
+		int soundcardIdx = cpt::stoi(soundcard);
 		for (auto dev: pcmDevices)
 			if (dev.idx == soundcardIdx)
 				return dev;
@@ -53,105 +58,132 @@ PcmDevice getPcmDevice(const std::string& soundcard)
 	for (auto dev: pcmDevices)
 		if (dev.name.find(soundcard) != string::npos)
 			return dev;
-
+#endif
 	PcmDevice pcmDevice;
 	return pcmDevice;
 }
 
 
-int main (int argc, char *argv[])
+int main (int argc, char **argv)
 {
+#ifdef MACOS
+#pragma message "Warning: the macOS support is experimental and might not be maintained"
+#endif
 	try
 	{
-		string soundcard;
-		string ip;
-	//	int bufferMs;
-		size_t port;
-		size_t latency;
-		int runAsDaemon;
-		bool listPcmDevices;
+		string soundcard("default");
+		string host("");
+		size_t port(1704);
+		int latency(0);
+		int processPriority(-3);
 
-		po::options_description desc("Allowed options");
-		desc.add_options()
-		("help,h", "produce help message")
-		("version,v", "show version number")
-		("list,l", po::bool_switch(&listPcmDevices)->default_value(false), "list pcm devices")
-		("ip,i", po::value<string>(&ip), "server IP")
-		("port,p", po::value<size_t>(&port)->default_value(98765), "server port")
-		("soundcard,s", po::value<string>(&soundcard)->default_value("default"), "index or name of the soundcard")
-		("daemon,d", po::value<int>(&runAsDaemon)->implicit_value(-3), "daemonize, optional process priority [-20..19]")
-		("latency", po::value<size_t>(&latency)->default_value(0), "latency of the soundcard")
-		;
+		Switch helpSwitch("", "help", "produce help message");
+		Switch versionSwitch("v", "version", "show version number");
+		Switch listSwitch("l", "list", "list pcm devices");
+		Value<string> hostValue("h", "host", "server hostname or ip address", "", &host);
+		Value<size_t> portValue("p", "port", "server port", 1704, &port);
+		Value<string> soundcardValue("s", "soundcard", "index or name of the soundcard", "default", &soundcard);
+		Implicit<int> daemonOption("d", "daemon", "daemonize, optional process priority [-20..19]", -3, &processPriority);
+		Value<int> latencyValue("", "latency", "latency of the soundcard", 0, &latency);
 
-		po::variables_map vm;
-		po::store(po::parse_command_line(argc, argv, desc), vm);
-		po::notify(vm);
+		OptionParser op("Allowed options");
+		op.add(helpSwitch)
+		 .add(versionSwitch)
+		 .add(hostValue)
+		 .add(portValue)
+#if defined(HAS_ALSA)
+		 .add(listSwitch)
+		 .add(soundcardValue)
+#endif
+#ifdef HAS_DAEMON
+		 .add(daemonOption)
+#endif
+		 .add(latencyValue);
 
-		std::clog.rdbuf(new Log("snapclient", LOG_DAEMON));
-
-		if (vm.count("help"))
+		try
 		{
-			cout << desc << "\n";
-			return 1;
+			op.parse(argc, argv);
+		}
+		catch (const std::invalid_argument& e)
+		{
+			logS(kLogErr) << "Exception: " << e.what() << std::endl;
+			cout << "\n" << op << "\n";
+			exit(EXIT_FAILURE);
 		}
 
-		if (vm.count("version"))
+		if (versionSwitch.isSet())
 		{
 			cout << "snapclient v" << VERSION << "\n"
-				 << "Copyright (C) 2014 BadAix (snapcast@badaix.de).\n"
-				 << "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
-				 << "This is free software: you are free to change and redistribute it.\n"
-				 << "There is NO WARRANTY, to the extent permitted by law.\n\n"
-				 << "Written by Johannes M. Pohl.\n";
-			return 1;
+				<< "Copyright (C) 2014-2016 BadAix (snapcast@badaix.de).\n"
+				<< "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
+				<< "This is free software: you are free to change and redistribute it.\n"
+				<< "There is NO WARRANTY, to the extent permitted by law.\n\n"
+				<< "Written by Johannes M. Pohl.\n\n";
+			exit(EXIT_SUCCESS);
 		}
 
-		if (listPcmDevices)
+		if (listSwitch.isSet())
 		{
-			vector<PcmDevice> pcmDevices = Player::pcm_list();
+#ifdef HAS_ALSA
+			vector<PcmDevice> pcmDevices = AlsaPlayer::pcm_list();
 			for (auto dev: pcmDevices)
 			{
 				cout << dev.idx << ": " << dev.name << "\n"
-					 << dev.description << "\n\n";
+					<< dev.description << "\n\n";
 			}
-			return 1;
+#endif
+			exit(EXIT_SUCCESS);
 		}
 
-	    signal(SIGHUP, signal_handler);
-	    signal(SIGTERM, signal_handler);
-	    signal(SIGINT, signal_handler);
-
-		if (vm.count("daemon"))
+		if (helpSwitch.isSet())
 		{
+			cout << op << "\n";
+			exit(EXIT_SUCCESS);
+		}
+
+		std::clog.rdbuf(new Log("snapclient", LOG_DAEMON));
+
+		signal(SIGHUP, signal_handler);
+		signal(SIGTERM, signal_handler);
+		signal(SIGINT, signal_handler);
+
+		if (daemonOption.isSet())
+		{
+#ifdef HAS_DAEMON
 			daemonize("/var/run/snapclient.pid");
-			if (runAsDaemon < -20)
-				runAsDaemon = -20;
-			else if (runAsDaemon > 19)
-				runAsDaemon = 19;
-			setpriority(PRIO_PROCESS, 0, runAsDaemon);
+			if (processPriority < -20)
+				processPriority = -20;
+			else if (processPriority > 19)
+				processPriority = 19;
+			if (processPriority != 0)
+				setpriority(PRIO_PROCESS, 0, processPriority);
 			logS(kLogNotice) << "daemon started" << std::endl;
+#endif
 		}
 
 		PcmDevice pcmDevice = getPcmDevice(soundcard);
+#if defined(HAS_ALSA)
 		if (pcmDevice.idx == -1)
 		{
 			cout << "soundcard \"" << soundcard << "\" not found\n";
-			return 1;
+//			exit(EXIT_FAILURE);
 		}
+#endif
 
-		if (!vm.count("ip"))
+		if (host.empty())
 		{
-			BrowseAvahi browseAvahi;
-			AvahiResult avahiResult;
+#if defined(HAS_AVAHI) || defined(HAS_BONJOUR)
+			BrowseZeroConf browser;
+			mDNSResult avahiResult;
 			while (!g_terminated)
 			{
 				try
 				{
-					if (browseAvahi.browse("_snapcast._tcp", AVAHI_PROTO_INET, avahiResult, 5000))
+					if (browser.browse("_snapcast._tcp", avahiResult, 5000))
 					{
-						ip = avahiResult.ip_;
+						host = avahiResult.ip_;
 						port = avahiResult.port_;
-						logO << "Found server " << ip << ":" << port << "\n";
+						logO << "Found server " << host << ":" << port << "\n";
 						break;
 					}
 				}
@@ -159,16 +191,18 @@ int main (int argc, char *argv[])
 				{
 					logS(kLogErr) << "Exception: " << e.what() << std::endl;
 				}
-				usleep(500*1000);
+				chronos::sleep(500);
 			}
+#endif
 		}
 
 		std::unique_ptr<Controller> controller(new Controller());
 		if (!g_terminated)
 		{
-			controller->start(pcmDevice, ip, port, latency);
+			logO << "Latency: " << latency << "\n";
+			controller->start(pcmDevice, host, port, latency);
 			while(!g_terminated)
-				usleep(100*1000);
+				chronos::sleep(100);
 			controller->stop();
 		}
 	}
@@ -178,8 +212,10 @@ int main (int argc, char *argv[])
 	}
 
 	logS(kLogNotice) << "daemon terminated." << endl;
+#ifdef HAS_DAEMON
 	daemonShutdown();
-	return 0;
+#endif
+	exit(EXIT_SUCCESS);
 }
 
 

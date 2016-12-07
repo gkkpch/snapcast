@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@ class PcmDecoder : public Decoder
 public:
 	PcmDecoder();
 	virtual bool decode(msg::PcmChunk* chunk);
-	virtual bool setHeader(msg::Header* chunk);
+	virtual SampleFormat setHeader(msg::CodecHeader* chunk);
 };
 
 

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,12 +16,12 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ***/
 
-#include <boost/lexical_cast.hpp>
 #include <iostream>
 
 #include "flacEncoder.h"
-#include "common/log.h"
+#include "common/strCompat.h"
 #include "common/snapException.h"
+#include "common/log.h"
 
 using namespace std;
 
@@ -29,7 +29,7 @@ using namespace std;
 FlacEncoder::FlacEncoder(const std::string& codecOptions) : Encoder(codecOptions), encoder_(NULL), pcmBufferSize_(0), encodedSamples_(0)
 {
 	flacChunk_ = new msg::PcmChunk();
-	headerChunk_ = new msg::Header("flac");
+	headerChunk_.reset(new msg::CodecHeader("flac"));
 	pcmBuffer_ = (FLAC__int32*)malloc(pcmBufferSize_ * sizeof(FLAC__int32));
 }
 
@@ -44,8 +44,7 @@ FlacEncoder::~FlacEncoder()
 		FLAC__stream_encoder_delete(encoder_);
 	}
 
-	if (flacChunk_)
-		delete flacChunk_;
+	delete flacChunk_;
 	free(pcmBuffer_);
 }
 
@@ -80,10 +79,25 @@ void FlacEncoder::encode(const msg::PcmChunk* chunk)
 		pcmBuffer_ = (FLAC__int32*)realloc(pcmBuffer_, pcmBufferSize_ * sizeof(FLAC__int32));
 	}
 
-	for(int i=0; i<samples; i++)
+	if (sampleFormat_.sampleSize == 1)
 	{
-		pcmBuffer_[i] = (FLAC__int32)(((FLAC__int16)(FLAC__int8)chunk->payload[2*i+1] << 8) | (FLAC__int16)(0x00ff&chunk->payload[2*i]));
+		FLAC__int8* buffer = (FLAC__int8*)chunk->payload;
+		for(int i=0; i<samples; i++)
+			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
 	}
+	else if (sampleFormat_.sampleSize == 2)
+	{
+		FLAC__int16* buffer = (FLAC__int16*)chunk->payload;
+		for(int i=0; i<samples; i++)
+			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
+	}
+	else if (sampleFormat_.sampleSize == 4)
+	{
+		FLAC__int32* buffer = (FLAC__int32*)chunk->payload;
+		for(int i=0; i<samples; i++)
+			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
+	}
+
 
 	FLAC__stream_encoder_process_interleaved(encoder_, pcmBuffer_, frames);
 
@@ -139,9 +153,9 @@ void FlacEncoder::initEncoder()
 	int quality(2);
 	try
 	{
-		quality = boost::lexical_cast<int>(codecOptions_);
+		quality = cpt::stoi(codecOptions_);
 	}
-	catch(boost::bad_lexical_cast)
+	catch(...)
 	{
 		throw SnapException("Invalid codec option: \"" + codecOptions_ + "\"");
 	}

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #include "doubleBuffer.h"
 #include "message/message.h"
 #include "message/pcmChunk.h"
-#include "message/sampleFormat.h"
+#include "common/sampleFormat.h"
 #include "common/queue.h"
 
 
@@ -42,7 +42,7 @@
 class Stream
 {
 public:
-	Stream(const msg::SampleFormat& format);
+	Stream(const SampleFormat& format);
 
 	/// Adds PCM data to the queue
 	void addChunk(msg::PcmChunk* chunk);
@@ -55,7 +55,7 @@ public:
 	/// "Server buffer": playout latency, e.g. 1000ms
 	void setBufferLen(size_t bufferLenMs);
 
-	const msg::SampleFormat& getFormat() const
+	const SampleFormat& getFormat() const
 	{
 		return format_;
 	}
@@ -63,18 +63,17 @@ public:
 	bool waitForChunk(size_t ms) const;
 
 private:
-	chronos::time_point_hrc getNextPlayerChunk(void* outputBuffer, const chronos::usec& timeout, unsigned long framesPerBuffer);
-	chronos::time_point_hrc getNextPlayerChunk(void* outputBuffer, const chronos::usec& timeout, unsigned long framesPerBuffer, long framesCorrection);
-	chronos::time_point_hrc getSilentPlayerChunk(void* outputBuffer, unsigned long framesPerBuffer);
-	chronos::time_point_hrc seek(long ms);
+	chronos::time_point_clk getNextPlayerChunk(void* outputBuffer, const chronos::usec& timeout, unsigned long framesPerBuffer);
+	chronos::time_point_clk getNextPlayerChunk(void* outputBuffer, const chronos::usec& timeout, unsigned long framesPerBuffer, long framesCorrection);
+	chronos::time_point_clk getSilentPlayerChunk(void* outputBuffer, unsigned long framesPerBuffer);
+	chronos::time_point_clk seek(long ms);
 //	time_point_ms seekTo(const time_point_ms& to);
 	void updateBuffers(int age);
 	void resetBuffers();
 	void setRealSampleRate(double sampleRate);
 
-	msg::SampleFormat format_;
+	SampleFormat format_;
 
-	long lastTick_;
 	chronos::usec sleep_;
 
 	Queue<std::shared_ptr<msg::PcmChunk>> chunks_;
@@ -90,9 +89,6 @@ private:
 	unsigned long playedFrames_;
 	long correctAfterXFrames_;
 	chronos::msec bufferMs_;
-
-	mutable std::condition_variable cv_;
-	mutable std::mutex cvMutex_;
 };
 
 

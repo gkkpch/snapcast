@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,6 +30,13 @@ public:
 
 protected:
     virtual void initEncoder();
+
+	template<typename T>
+	void assign(void* pointer, T val)
+	{
+		T* p = (T*)pointer;
+		*p = val;
+	}
 };
 
 

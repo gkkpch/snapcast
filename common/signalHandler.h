@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 #include <signal.h>
 #include <syslog.h>
 
-extern bool g_terminated;
+extern volatile sig_atomic_t g_terminated;
 
 void signal_handler(int sig)
 {

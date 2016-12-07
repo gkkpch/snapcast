@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,9 +23,17 @@
 #include <atomic>
 #include "decoder/decoder.h"
 #include "message/message.h"
+#include "message/serverSettings.h"
+#include "player/pcmDevice.h"
+#ifdef HAS_ALSA
+#include "player/alsaPlayer.h"
+#elif HAS_OPENSL
+#include "player/openslPlayer.h"
+#elif HAS_COREAUDIO
+#include "player/coreAudioPlayer.h"
+#endif
 #include "clientConnection.h"
 #include "stream.h"
-#include "pcmDevice.h"
 
 
 /// Forwards PCM data to the audio player
@@ -38,7 +46,7 @@ class Controller : public MessageReceiver
 {
 public:
 	Controller();
-	void start(const PcmDevice& pcmDevice, const std::string& ip, size_t port, size_t latency);
+	void start(const PcmDevice& pcmDevice, const std::string& host, size_t port, int latency);
 	void stop();
 
 	/// Implementation of MessageReceiver.
@@ -53,16 +61,19 @@ private:
 	void worker();
 	bool sendTimeSyncMessage(long after = 1000);
 	std::atomic<bool> active_;
-	std::thread* controllerThread_;
-	ClientConnection* clientConnection_;
-	Stream* stream_;
-	std::string ip_;
-	std::shared_ptr<msg::SampleFormat> sampleFormat_;
-	Decoder* decoder_;
+	std::thread controllerThread_;
+	SampleFormat sampleFormat_;
 	PcmDevice pcmDevice_;
-	size_t latency_;
+	int latency_;
+	std::unique_ptr<ClientConnection> clientConnection_;
+	std::shared_ptr<Stream> stream_;
+	std::unique_ptr<Decoder> decoder_;
+	std::unique_ptr<Player> player_;
+	std::shared_ptr<msg::ServerSettings> serverSettings_;
+	std::shared_ptr<msg::CodecHeader> headerChunk_;
+	std::mutex receiveMutex_;
 
-	std::exception exception_;
+	std::string exception_;
 	bool asyncException_;
 };
 

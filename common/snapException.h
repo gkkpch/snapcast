@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,30 +27,26 @@
 class SnapException : public std::exception {
   char* text_;
 public:
-	SnapException(const char* text) 
+	SnapException(const char* text)
 	{
-		text_ = new char[std::strlen(text) + 1]; 
+		text_ = new char[std::strlen(text) + 1];
 		std::strcpy(text_, text);
 	}
 
-	SnapException(const std::string& text) 
+	SnapException(const std::string& text) : SnapException(text.c_str())
 	{
-		text_ = new char[text.size()]; 
-		std::strcpy(text_, text.c_str());
 	}
 
-	SnapException(const SnapException& e) 
+	SnapException(const SnapException& e) : SnapException(e.what())
 	{
-		text_ = new char[std::strlen(e.text_)]; 
-		std::strcpy(text_, e.text_);
 	}
 
-	virtual ~SnapException() throw() 
+	virtual ~SnapException() throw()
 	{
 		delete[] text_;
 	}
 
-	virtual const char* what() const noexcept 
+	virtual const char* what() const noexcept
 	{
 		return text_;
 	}
@@ -58,14 +54,23 @@ public:
 
 
 
-class ServerException : public SnapException
+class AsyncSnapException : public SnapException
 {
 public:
-	ServerException(const char* text) : SnapException(text)
+	AsyncSnapException(const char* text) : SnapException(text)
 	{
 	}
 
-	virtual ~ServerException() throw()
+	AsyncSnapException(const std::string& text) : SnapException(text)
+	{
+	}
+
+	AsyncSnapException(const AsyncSnapException& e) : SnapException(e.what())
+	{
+	}
+
+
+	virtual ~AsyncSnapException() throw()
 	{
 	}
 };

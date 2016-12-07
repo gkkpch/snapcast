@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -37,20 +37,22 @@ public:
 
 	virtual void read(std::istream& stream)
 	{
-		stream.read(reinterpret_cast<char *>(&latency), sizeof(double));
+		readVal(stream, latency.sec);
+		readVal(stream, latency.usec);
 	}
 
 	virtual uint32_t getSize() const
 	{
-		return sizeof(double);
+		return sizeof(tv);
 	}
 
-	double latency;
+	tv latency;
 
 protected:
 	virtual void doserialize(std::ostream& stream) const
 	{
-		stream.write(reinterpret_cast<const char *>(&latency), sizeof(double));
+		writeVal(stream, latency.sec);
+		writeVal(stream, latency.usec);
 	}
 };
 

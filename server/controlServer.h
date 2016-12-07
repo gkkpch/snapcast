@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 #ifndef CONTROL_SERVER_H
 #define CONTROL_SERVER_H
 
-#include <boost/asio.hpp>
+#include <asio.hpp>
 #include <vector>
 #include <thread>
 #include <memory>
@@ -27,80 +27,49 @@
 #include <sstream>
 #include <mutex>
 
-#include "serverSession.h"
-#include "pipeReader.h"
+#include "controlSession.h"
 #include "common/queue.h"
+#include "common/sampleFormat.h"
 #include "message/message.h"
-#include "message/header.h"
-#include "message/sampleFormat.h"
+#include "message/codecHeader.h"
 #include "message/serverSettings.h"
 
 
-using boost::asio::ip::tcp;
+using asio::ip::tcp;
 typedef std::shared_ptr<tcp::socket> socket_ptr;
 
 
-struct ControlServerSettings
-{
-	ControlServerSettings() :
-		port(98765),
-		fifoName("/tmp/snapfifo"),
-		codec("flac"),
-		bufferMs(1000),
-		sampleFormat("44100:16:2"),
-		pipeReadMs(20)
-	{
-	}
-	size_t port;
-	std::string fifoName;
-	std::string codec;
-	int32_t bufferMs;
-	msg::SampleFormat sampleFormat;
-	size_t pipeReadMs;
-};
-
-
-/// Forwars PCM data to the connected clients
+/// Telnet like remote control
 /**
- * Reads PCM data using PipeReader, implements PipeListener to get the (encoded) PCM stream.
- * Accepts and holds client connections (ServerSession)
- * Receives (via the MessageReceiver interface) and answers messages from the clients
- * Forwards PCM data to the clients
+ * Telnet like remote control
  */
-class ControlServer : public MessageReceiver, PipeListener
+class ControlServer : public ControlMessageReceiver
 {
 public:
-	ControlServer(const ControlServerSettings& controlServerSettings);
+	ControlServer(asio::io_service* io_service, size_t port, ControlMessageReceiver* controlMessageReceiver = NULL);
 	virtual ~ControlServer();
 
 	void start();
 	void stop();
 
 	/// Send a message to all connceted clients
-	void send(const msg::BaseMessage* message);
+	void send(const std::string& message, const ControlSession* excludeSession = NULL);
 
 	/// Clients call this when they receive a message. Implementation of MessageReceiver::onMessageReceived
-	virtual void onMessageReceived(ServerSession* connection, const msg::BaseMessage& baseMessage, char* buffer);
-
-	/// Implementation of PipeListener
-	virtual void onChunkRead(const PipeReader* pipeReader, const msg::PcmChunk* chunk, double duration);
-	virtual void onResync(const PipeReader* pipeReader, double ms);
+	virtual void onMessageReceived(ControlSession* connection, const std::string& message);
 
 private:
 	void startAccept();
 	void handleAccept(socket_ptr socket);
-	void acceptor();
+//	void acceptor();
 	mutable std::mutex mutex_;
-	PipeReader* pipeReader_;
-	std::set<std::shared_ptr<ServerSession>> sessions_;
-	boost::asio::io_service io_service_;
+	std::set<std::shared_ptr<ControlSession>> sessions_;
 	std::shared_ptr<tcp::acceptor> acceptor_;
 
-	ControlServerSettings settings_;
-	msg::SampleFormat sampleFormat_;
-	msg::ServerSettings serverSettings_;
-	std::thread acceptThread_;
 	Queue<std::shared_ptr<msg::BaseMessage>> messages_;
+	asio::io_service* io_service_;
+	size_t port_;
+	ControlMessageReceiver* controlMessageReceiver_;
 };
 
 

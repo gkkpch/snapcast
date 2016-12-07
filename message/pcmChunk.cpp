@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -50,11 +50,13 @@ PcmChunk::~PcmChunk()
 
 int PcmChunk::seek(int frames)
 {
+	if ((frames < 0) && (-frames > (int)idx_))
+		frames = -idx_;
+		
 	idx_ += frames;
 	if (idx_ > getFrameCount())
 		idx_ = getFrameCount();
-	if (idx_ < 0)
-		idx_ = 0;
+
 	return idx_;
 }
 

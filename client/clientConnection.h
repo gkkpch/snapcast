@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2015  Johannes Pohl
+    Copyright (C) 2014-2016  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,14 +24,14 @@
 #include <atomic>
 #include <mutex>
 #include <memory>
-#include <boost/asio.hpp>
+#include <asio.hpp>
 #include <condition_variable>
 #include <set>
 #include "message/message.h"
 #include "common/timeDefs.h"
 
 
-using boost::asio::ip::tcp;
+using asio::ip::tcp;
 
 
 class ClientConnection;
@@ -67,7 +67,7 @@ class ClientConnection
 {
 public:
 	/// ctor. Received message from the server are passed to MessageReceiver
-	ClientConnection(MessageReceiver* receiver, const std::string& ip, size_t port);
+	ClientConnection(MessageReceiver* receiver, const std::string& host, size_t port);
 	virtual ~ClientConnection();
 	virtual void start();
 	virtual void stop();
@@ -88,6 +88,8 @@ public:
 		return msg;
 	}
 
+	std::string getMacAddress() const;
+
 	virtual bool active() const
 	{
 		return active_;
@@ -95,7 +97,7 @@ public:
 
 	virtual bool connected() const
 	{
-		return (socket_ != 0);
+		return (socket_ != nullptr);
 //		return (connected_ && socket);
 	}
 
@@ -105,16 +107,16 @@ protected:
 	void socketRead(void* to, size_t bytes);
 	void getNextMessage();
 
-	boost::asio::io_service io_service_;
+	asio::io_service io_service_;
+	mutable std::mutex socketMutex_;
 	std::shared_ptr<tcp::socket> socket_;
 	std::atomic<bool> active_;
 	std::atomic<bool> connected_;
 	MessageReceiver* messageReceiver_;
-	mutable std::mutex mutex_;
-	mutable std::mutex requestMutex_;
+	mutable std::mutex pendingRequestsMutex_;
 	std::set<std::shared_ptr<PendingRequest>> pendingRequests_;
 	uint16_t reqId_;
-	std::string ip_;
+	std::string host_;
 	size_t port_;
 	std::thread* readerThread_;
 	chronos::msec sumTimeout_;
