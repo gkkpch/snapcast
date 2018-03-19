@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 
 #include "fileStream.h"
 #include "encoder/encoderFactory.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 #include "common/snapException.h"
 
 
@@ -36,7 +36,7 @@ FileStream::FileStream(PcmListener* pcmListener, const StreamUri& uri) : PcmStre
 	ifs.open(uri_.path.c_str(), std::ifstream::in|std::ifstream::binary);
 	if (!ifs.good())
 	{
-		logE << "failed to open PCM file: \"" + uri_.path + "\"\n";
+		LOG(ERROR) << "failed to open PCM file: \"" + uri_.path + "\"\n";
 		throw SnapException("failed to open PCM file: \"" + uri_.path + "\"");
 	}
 }
@@ -61,7 +61,7 @@ void FileStream::worker()
 
 	while (active_)
 	{
-		gettimeofday(&tvChunk, NULL);
+		chronos::systemtimeofday(&tvChunk);
 		tvEncodedChunk_ = tvChunk;
 		long nextTick = chronos::getTickCount();
 		try
@@ -91,13 +91,13 @@ void FileStream::worker()
 
 				if (nextTick >= currentTick)
 				{
-//					logO << "sleep: " << nextTick - currentTick << "\n";
+//					LOG(INFO) << "sleep: " << nextTick - currentTick << "\n";
 					if (!sleep(nextTick - currentTick))
 						break;
 				}
 				else
 				{
-					gettimeofday(&tvChunk, NULL);
+					chronos::systemtimeofday(&tvChunk);
 					tvEncodedChunk_ = tvChunk;
 					pcmListener_->onResync(this, currentTick - nextTick);
 					nextTick = currentTick;
@@ -106,7 +106,7 @@ void FileStream::worker()
 		}
 		catch(const std::exception& e)
 		{
-			logE << "(FileStream) Exception: " << e.what() << std::endl;
+			LOG(ERROR) << "(FileStream) Exception: " << e.what() << std::endl;
 		}
 	}
 }

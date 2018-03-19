@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -48,7 +48,6 @@ public class TcpClient {
     private BufferedReader mBufferIn;
     private Thread readerThread = null;
     private Socket socket = null;
-    private String uid;
     private BlockingQueue<String> messages = new LinkedBlockingQueue<>();
 
     /**
@@ -215,7 +214,7 @@ public class TcpClient {
                 if (socket != null) {
                     try {
                         socket.close();
-                    } catch (Exception e) {
+                    } catch (Exception ignored) {
                     }
                 }
                 socket = null;

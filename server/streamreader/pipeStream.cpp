@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 #include "encoder/encoderFactory.h"
 #include "common/snapException.h"
 #include "common/strCompat.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -39,7 +39,7 @@ PipeStream::PipeStream(PcmListener* pcmListener, const StreamUri& uri) : PcmStre
 	umask(0);
 	string mode = uri_.getQuery("mode", "create");
 		
-	logO << "PipeStream mode: " << mode << "\n";
+	LOG(INFO) << "PipeStream mode: " << mode << "\n";
 	if ((mode != "read") && (mode != "create"))
 		throw SnapException("create mode for fifo must be \"read\" or \"create\"");
 	
@@ -62,15 +62,18 @@ void PipeStream::worker()
 {
 	timeval tvChunk;
 	std::unique_ptr<msg::PcmChunk> chunk(new msg::PcmChunk(sampleFormat_, pcmReadMs_));
+	string lastException = "";
 
 	while (active_)
 	{
 		if (fd_ != -1)
 			close(fd_);
 		fd_ = open(uri_.path.c_str(), O_RDONLY | O_NONBLOCK);
-		gettimeofday(&tvChunk, NULL);
+		chronos::systemtimeofday(&tvChunk);
 		tvEncodedChunk_ = tvChunk;
 		long nextTick = chronos::getTickCount();
+		int idleBytes = 0;
+		int maxIdleBytes = sampleFormat_.rate*sampleFormat_.frameSize*dryoutMs_/1000;
 		try
 		{
 			if (fd_ == -1)
@@ -85,6 +88,13 @@ void PipeStream::worker()
 				do
 				{
 					int count = read(fd_, chunk->payload + len, toRead - len);
+					if (count < 0 && idleBytes < maxIdleBytes)
+					{
+						memset(chunk->payload + len, 0, toRead - len);
+						idleBytes += toRead - len;
+						len += toRead - len;
+						continue;
+					}
 					if (count < 0)
 					{
 						setState(kIdle);
@@ -93,13 +103,17 @@ void PipeStream::worker()
 					}
 					else if (count == 0)
 						throw SnapException("end of file");
-					else
+					else 
+					{
 						len += count;
+						idleBytes = 0;
+					}
 				}
 				while ((len < toRead) && active_);
 
 				if (!active_) break;
 
+				/// TODO: use less raw pointers, make this encoding more transparent
 				encoder_->encode(chunk.get());
 
 				if (!active_) break;
@@ -116,16 +130,22 @@ void PipeStream::worker()
 				}
 				else
 				{
-					gettimeofday(&tvChunk, NULL);
+					chronos::systemtimeofday(&tvChunk);
 					tvEncodedChunk_ = tvChunk;
 					pcmListener_->onResync(this, currentTick - nextTick);
 					nextTick = currentTick;
 				}
+
+				lastException = "";
 			}
 		}
 		catch(const std::exception& e)
 		{
-			logE << "(PipeStream) Exception: " << e.what() << std::endl;
+			if (lastException != e.what())
+			{
+				LOG(ERROR) << "(PipeStream) Exception: " << e.what() << std::endl;
+				lastException = e.what();
+			}
 			if (!sleep(100))
 				break;
 		}

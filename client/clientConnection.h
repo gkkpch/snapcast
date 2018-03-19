@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -48,12 +48,16 @@ struct PendingRequest
 };
 
 
+/// would be nicer to use std::exception_ptr
+/// but not supported on all plattforms
+typedef std::shared_ptr<std::exception> shared_exception_ptr;
+
 /// Interface: callback for a received message and error reporting
 class MessageReceiver
 {
 public:
 	virtual void onMessageReceived(ClientConnection* connection, const msg::BaseMessage& baseMessage, char* buffer) = 0;
-	virtual void onException(ClientConnection* connection, const std::exception& exception) = 0;
+	virtual void onException(ClientConnection* connection, shared_exception_ptr exception) = 0;
 };
 
 

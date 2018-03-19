@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -23,12 +23,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 
 /**
  * Created by johannes on 06.01.16.
  */
 public class ServerStatus implements JsonSerialisable {
-    private ArrayList<Client> clients = new ArrayList<Client>();
+    private ArrayList<Group> groups = new ArrayList<Group>();
     private ArrayList<Stream> streams = new ArrayList<Stream>();
     private Server server = null;
 
@@ -47,12 +48,13 @@ public class ServerStatus implements JsonSerialisable {
             JSONArray jStreams = json.getJSONArray("streams");
             for (int i = 0; i < jStreams.length(); i++)
                 streams.add(new Stream(jStreams.getJSONObject(i)));
-            JSONArray jClients = json.getJSONArray("clients");
-            for (int i = 0; i < jClients.length(); i++)
-                clients.add(new Client(jClients.getJSONObject(i)));
+            JSONArray jGroups = json.getJSONArray("groups");
+            for (int i = 0; i < jGroups.length(); i++)
+                groups.add(new Group(jGroups.getJSONObject(i)));
         } catch (JSONException e) {
             e.printStackTrace();
         }
+        sort();
     }
 
     @Override
@@ -60,12 +62,19 @@ public class ServerStatus implements JsonSerialisable {
         JSONObject json = new JSONObject();
         try {
             json.put("server", server.toJson());
+            json.put("groups", getJsonGroups());
             json.put("streams", getJsonStreams());
-            json.put("clients", getJsonClients());
         } catch (JSONException e) {
             e.printStackTrace();
         }
         return json;
+    }
+
+    public void sort() {
+        for (Group group : groups)
+            group.sort();
+
+        Collections.sort(groups);
     }
 
     @Override
@@ -74,14 +83,17 @@ public class ServerStatus implements JsonSerialisable {
     }
 
     public void clear() {
-        clients.clear();
+        groups.clear();
         streams.clear();
     }
 
     public boolean removeClient(Client client) {
-        for (int i = 0; i < clients.size(); ++i) {
-            if (clients.get(i).getMac().equals(client.getMac())) {
-                clients.remove(i);
+        if (client == null)
+            return false;
+
+        for (Group group : groups) {
+            if (group.getClient(client.getId()) != null) {
+                group.removeClient(client.getId());
                 return true;
             }
         }
@@ -92,20 +104,32 @@ public class ServerStatus implements JsonSerialisable {
         if (client == null)
             return false;
 
-        for (int i = 0; i < clients.size(); ++i) {
-            Client clientInfo = clients.get(i);
-            if (clientInfo == null)
-                continue;
-
-            if (client.getMac().equals(clientInfo.getMac())) {
-                if (clientInfo.equals(client))
-                    return false;
-                clients.set(i, client);
+        for (Group group : groups) {
+            if (group.getClient(client.getId()) != null) {
+                group.updateClient(client);
                 return true;
             }
         }
-        clients.add(client);
-        return true;
+        return false;
+    }
+
+    public boolean updateGroup(Group group) {
+        if (group == null)
+            return false;
+
+        for (int i = 0; i < groups.size(); ++i) {
+            Group g = groups.get(i);
+            if (g == null)
+                continue;
+
+            if (group.getId().equals(g.getId())) {
+                if (g.equals(group))
+                    return false;
+                groups.set(i, group);
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean updateStream(Stream stream) {
@@ -128,12 +152,35 @@ public class ServerStatus implements JsonSerialisable {
         return true;
     }
 
-    public ArrayList<Client> getClientInfos() {
-        return clients;
+    public Client getClient(String id) {
+        for (Group group: groups) {
+            Client client = group.getClient(id);
+            if (client != null)
+                return client;
+        }
+        return null;
+    }
+
+    public ArrayList<Group> getGroups() {
+        return groups;
     }
 
     public ArrayList<Stream> getStreams() {
         return streams;
+    }
+
+    public Stream getStream(String id) {
+        for (Stream s : streams)
+            if ((s != null) && (s.getId().equals(id)))
+                return s;
+        return null;
+    }
+
+    public Group getGroup(String id) {
+        for (Group g : groups)
+            if ((g != null) && (g.getId().equals(id)))
+                return g;
+        return null;
     }
 
     public JSONArray getJsonStreams() {
@@ -143,10 +190,10 @@ public class ServerStatus implements JsonSerialisable {
         return jsonArray;
     }
 
-    public JSONArray getJsonClients() {
+    public JSONArray getJsonGroups() {
         JSONArray jsonArray = new JSONArray();
-        for (Client client : clients)
-            jsonArray.put(client.toJson());
+        for (Group group : groups)
+            jsonArray.put(group.toJson());
         return jsonArray;
     }
 

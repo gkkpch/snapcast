@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 
 #include "jsonMessage.h"
 #include "common/utils.h"
+#include "common/strCompat.h"
 #include <string>
 
 
@@ -34,7 +35,7 @@ public:
 	{
 	}
 
-	Hello(const std::string& macAddress) : JsonMessage(message_type::kHello)
+	Hello(const std::string& macAddress, const std::string& id, size_t instance) : JsonMessage(message_type::kHello)
 	{
 		msg["MAC"] = macAddress;
 		msg["HostName"] = ::getHostName();
@@ -42,6 +43,8 @@ public:
 		msg["ClientName"] = "Snapclient";
 		msg["OS"] = ::getOS();
 		msg["Arch"] = ::getArch();
+		msg["Instance"] = instance;
+		msg["ID"] = id;
 		msg["SnapStreamProtocolVersion"] = 2;
 	}
 
@@ -49,41 +52,61 @@ public:
 	{
 	}
 
-	std::string getMacAddress()
+	std::string getMacAddress() const
 	{
 		return msg["MAC"];
 	}
 
-	std::string getHostName()
+	std::string getHostName() const
 	{
 		return msg["HostName"];
 	}
 
-	std::string getVersion()
+	std::string getVersion() const
 	{
 		return msg["Version"];
 	}
 
-	std::string getClientName()
+	std::string getClientName() const
 	{
 		return msg["ClientName"];
 	}
 
-	std::string getOS()
+	std::string getOS() const
 	{
 		return msg["OS"];
 	}
 
-	std::string getArch()
+	std::string getArch() const
 	{
 		return msg["Arch"];
 	}
 
-	int getProtocolVersion()
+	int getInstance() const
+	{
+		return get("Instance", 1);
+	}
+
+	int getProtocolVersion() const
 	{
 		return get("SnapStreamProtocolVersion", 1);
 	}
 
+	std::string getId() const
+	{
+		return get("ID", getMacAddress());
+	}
+
+	std::string getUniqueId() const
+	{
+		std::string id = getId();
+		int instance = getInstance();
+		if (instance != 1)
+		{
+			id = id + "#" + cpt::to_string(instance);
+		}
+		return id;
+	}
 };
 
 }

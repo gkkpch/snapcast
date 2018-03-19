@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
 #include "common/snapException.h"
 #include "common/strCompat.h"
 #include "pcmStream.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -46,10 +46,19 @@ PcmStream::PcmStream(PcmListener* pcmListener, const StreamUri& uri) :
  	if (uri_.query.find("sampleformat") == uri_.query.end())
 		throw SnapException("Stream URI must have a sampleformat");
 	sampleFormat_ = SampleFormat(uri_.query["sampleformat"]);
-	logO << "PcmStream sampleFormat: " << sampleFormat_.getFormat() << "\n";
+	LOG(INFO) << "PcmStream sampleFormat: " << sampleFormat_.getFormat() << "\n";
 
  	if (uri_.query.find("buffer_ms") != uri_.query.end())
 		pcmReadMs_ = cpt::stoul(uri_.query["buffer_ms"]);
+
+	if (uri_.query.find("dryout_ms") != uri_.query.end())
+		dryoutMs_ = cpt::stoul(uri_.query["dryout_ms"]);
+	else
+		dryoutMs_ = 2000;
+
+	//meta_.reset(new msg::StreamTags());
+	//meta_->msg["stream"] = name_;
+	setMeta(json());
 }
 
 
@@ -91,7 +100,7 @@ const SampleFormat& PcmStream::getSampleFormat() const
 
 void PcmStream::start()
 {
-	logD << "PcmStream start: " << sampleFormat_.getFormat() << "\n";
+	LOG(DEBUG) << "PcmStream start: " << sampleFormat_.getFormat() << "\n";
 	encoder_->init(this, sampleFormat_);
 	active_ = true;
 	thread_ = thread(&PcmStream::worker, this);
@@ -138,7 +147,7 @@ void PcmStream::setState(const ReaderState& newState)
 
 void PcmStream::onChunkEncoded(const Encoder* encoder, msg::PcmChunk* chunk, double duration)
 {
-//	logO << "onChunkEncoded: " << duration << " us\n";
+//	LOG(INFO) << "onChunkEncoded: " << duration << " us\n";
 	if (duration <= 0)
 		return;
 
@@ -163,8 +172,28 @@ json PcmStream::toJson() const
 	json j = {
 		{"uri", uri_.toJson()},
 		{"id", getId()},
-		{"status", state}
+		{"status", state},
 	};
+
+	if(meta_)
+		j["meta"] = meta_->msg;
+
 	return j;
+}
+
+std::shared_ptr<msg::StreamTags> PcmStream::getMeta() const
+{
+	return meta_;
+}
+
+void PcmStream::setMeta(json jtag)
+{
+	meta_.reset(new msg::StreamTags(jtag));
+	meta_->msg["STREAM"] = name_;
+	LOG(INFO) << "metadata=" << meta_->msg.dump(4) << "\n";
+
+	// Trigger a stream update
+	if (pcmListener_)
+		pcmListener_->onMetaChanged(this);
 }
 

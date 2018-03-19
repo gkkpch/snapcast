@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -30,25 +30,28 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 
 import de.badaix.snapcast.control.json.Client;
-import de.badaix.snapcast.control.json.ServerStatus;
-import de.badaix.snapcast.control.json.Stream;
 import de.badaix.snapcast.control.json.Volume;
 
 public class ClientItem extends LinearLayout implements SeekBar.OnSeekBarChangeListener, View.OnClickListener, PopupMenu.OnMenuItemClickListener {
+
+    private static final String TAG = "ClientItem";
 
     private TextView title;
     private SeekBar volumeSeekBar;
     private ImageButton ibMute;
     private ImageButton ibOverflow;
     private Client client;
-    private ServerStatus server;
-    private ClientInfoItemListener listener = null;
+    private ClientItemListener listener = null;
 
-    public ClientItem(Context context, ServerStatus server, Client client) {
+    public ClientItem(Context context) {
+        this(context, null);
+    }
+
+    public ClientItem(Context context, Client client) {
         super(context);
         LayoutInflater vi = (LayoutInflater) context
                 .getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        vi.inflate(R.layout.client_info, this);
+        vi.inflate(R.layout.client_item, this);
         title = (TextView) findViewById(R.id.title);
         volumeSeekBar = (SeekBar) findViewById(R.id.volumeSeekBar);
         ibMute = (ImageButton) findViewById(R.id.ibMute);
@@ -56,12 +59,12 @@ public class ClientItem extends LinearLayout implements SeekBar.OnSeekBarChangeL
         ibMute.setOnClickListener(this);
         ibOverflow = (ImageButton) findViewById(R.id.ibOverflow);
         ibOverflow.setOnClickListener(this);
-        setClient(client);
         volumeSeekBar.setOnSeekBarChangeListener(this);
-        this.server = server;
+        setClient(client);
     }
 
-    private void update() {
+    public void update() {
+        //Log.d(TAG, "update: " + client.getVisibleName() + ", connected: " + client.isConnected());
         title.setText(client.getVisibleName());
         title.setEnabled(client.isConnected());
         volumeSeekBar.setProgress(client.getConfig().getVolume().getPercent());
@@ -80,16 +83,16 @@ public class ClientItem extends LinearLayout implements SeekBar.OnSeekBarChangeL
         update();
     }
 
-    public void setListener(ClientInfoItemListener listener) {
+    public void setListener(ClientItemListener listener) {
         this.listener = listener;
     }
 
     @Override
     public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
         if (fromUser && (listener != null)) {
-            Volume volume = new Volume(progress, false);
-            client.setVolume(volume);
-            listener.onVolumeChanged(this, volume.getPercent());
+            Volume volume = client.getConfig().getVolume();
+            volume.setPercent(progress);
+            listener.onVolumeChanged(this, volume.getPercent(), volume.isMuted());
         }
     }
 
@@ -99,29 +102,12 @@ public class ClientItem extends LinearLayout implements SeekBar.OnSeekBarChangeL
             Volume volume = client.getConfig().getVolume();
             volume.setMuted(!volume.isMuted());
             update();
-            listener.onMute(this, volume.isMuted());
+            listener.onVolumeChanged(this, volume.getPercent(), volume.isMuted());
         } else if (v == ibOverflow) {
             PopupMenu popup = new PopupMenu(v.getContext(), v);
             popup.getMenu().add(Menu.NONE, R.id.menu_details, 0, R.string.menu_details);
             if (!client.isConnected())
                 popup.getMenu().add(Menu.NONE, R.id.menu_delete, 1, R.string.menu_delete);
-            if ((server != null) && (server.getStreams().size() > 1)) {
-                int pos = 2;
-                for (final Stream stream : server.getStreams()) {
-                    if (client.getConfig().getStream().equals(stream.getId()))
-                        continue;
-                    final MenuItem menuItem = popup.getMenu().add(Menu.NONE, Menu.NONE, pos, stream.getName());
-                    menuItem.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-                        @Override
-                        public boolean onMenuItemClick(MenuItem item) {
-                            listener.onStreamClicked(ClientItem.this, stream);
-                            return true;
-                        }
-                    });
-
-                    ++pos;
-                }
-            }
             popup.setOnMenuItemClickListener(this);
             popup.show();
         }
@@ -151,16 +137,12 @@ public class ClientItem extends LinearLayout implements SeekBar.OnSeekBarChangeL
         }
     }
 
-    public interface ClientInfoItemListener {
-        void onVolumeChanged(ClientItem clientItem, int percent);
-
-        void onMute(ClientItem clientItem, boolean mute);
+    public interface ClientItemListener {
+        void onVolumeChanged(ClientItem clientItem, int percent, boolean mute);
 
         void onDeleteClicked(ClientItem clientItem);
 
         void onPropertiesClicked(ClientItem clientItem);
-
-        void onStreamClicked(ClientItem clientItem, Stream stream);
     }
 
 }

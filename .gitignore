@@ -34,3 +34,5 @@ server/snapserver
 GPATH
 GRTAGS
 GTAGS
+build
+bin

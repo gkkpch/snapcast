@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,8 +22,9 @@
 #include <fcntl.h>
 #include "processStream.h"
 #include "common/snapException.h"
+#include "common/utils/string_utils.h"
 #include "common/utils.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -45,7 +46,7 @@ ProcessStream::~ProcessStream()
 }
 
 
-bool ProcessStream::fileExists(const std::string& filename) 
+bool ProcessStream::fileExists(const std::string& filename)
 {
 	struct stat buffer;
 	return (stat(filename.c_str(), &buffer) == 0);
@@ -62,14 +63,10 @@ std::string ProcessStream::findExe(const std::string& filename)
 	if (exe.find("/") != string::npos)
 		exe = exe.substr(exe.find_last_of("/") + 1);
 
-	/// check with "whereis"
-	string whereis = execGetOutput("whereis " + exe);
-	if (whereis.find(":") != std::string::npos)
-	{
-		whereis = trim_copy(whereis.substr(whereis.find(":") + 1));
-		if (!whereis.empty())
-			return whereis;
-	}
+	/// check with "which"
+	string which = execGetOutput("which " + exe);
+	if (!which.empty())
+		return which;
 
 	/// check in the same path as this binary
 	char buff[PATH_MAX];
@@ -124,9 +121,9 @@ void ProcessStream::onStderrMsg(const char* buffer, size_t n)
 {
 	if (logStderr_)
 	{
-		string line = trim_copy(string(buffer, n));
+		string line = utils::string::trim_copy(string(buffer, n));
 		if ((line.find('\0') == string::npos) && !line.empty())
-			logO << "(" << getName() << ") " << line << "\n";
+			LOG(INFO) << "(" << getName() << ") " << line << "\n";
 	}
 }
 
@@ -146,8 +143,8 @@ void ProcessStream::worker()
 {
 	timeval tvChunk;
 	std::unique_ptr<msg::PcmChunk> chunk(new msg::PcmChunk(sampleFormat_, pcmReadMs_));
-
 	setState(kPlaying);
+	string lastException = "";
 
 	while (active_)
 	{
@@ -158,9 +155,11 @@ void ProcessStream::worker()
 		stderrReaderThread_ = thread(&ProcessStream::stderrReader, this);
 		stderrReaderThread_.detach();
 
-		gettimeofday(&tvChunk, NULL);
+		chronos::systemtimeofday(&tvChunk);
 		tvEncodedChunk_ = tvChunk;
 		long nextTick = chronos::getTickCount();
+		int idleBytes = 0;
+		int maxIdleBytes = sampleFormat_.rate*sampleFormat_.frameSize*dryoutMs_/1000;
 		try
 		{
 			while (active_)
@@ -172,6 +171,13 @@ void ProcessStream::worker()
 				do
 				{
 					int count = read(process_->getStdout(), chunk->payload + len, toRead - len);
+					if (count < 0 && idleBytes < maxIdleBytes)
+					{
+						memset(chunk->payload + len, 0, toRead - len);
+						idleBytes += toRead - len;
+						len += toRead - len;
+						continue;
+					}
 					if (count < 0)
 					{
 						setState(kIdle);
@@ -180,8 +186,11 @@ void ProcessStream::worker()
 					}
 					else if (count == 0)
 						throw SnapException("end of file");
-					else
+					else 
+					{
 						len += count;
+						idleBytes = 0;
+					}
 				}
 				while ((len < toRead) && active_);
 
@@ -203,16 +212,22 @@ void ProcessStream::worker()
 				}
 				else
 				{
-					gettimeofday(&tvChunk, NULL);
+					chronos::systemtimeofday(&tvChunk);
 					tvEncodedChunk_ = tvChunk;
 					pcmListener_->onResync(this, currentTick - nextTick);
 					nextTick = currentTick;
 				}
+
+				lastException = "";
 			}
 		}
 		catch(const std::exception& e)
 		{
-			logE << "(ProcessStream) Exception: " << e.what() << std::endl;
+			if (lastException != e.what())
+			{
+				LOG(ERROR) << "(PipeStream) Exception: " << e.what() << std::endl;
+				lastException = e.what();
+			}
 			process_->kill();
 			if (!sleep(30000))
 				break;

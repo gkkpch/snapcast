@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -24,12 +24,13 @@ import org.json.JSONObject;
 /**
  * Created by johannes on 06.01.16.
  */
-public class Client implements JsonSerialisable {
+public class Client implements JsonSerialisable, Comparable<Client> {
     private Host host;
     private Snapclient snapclient;
     private ClientConfig config;
     private Time_t lastSeen;
     private boolean connected;
+    private String clientId;
     private boolean deleted = false;
 
     public Client(JSONObject json) {
@@ -39,34 +40,13 @@ public class Client implements JsonSerialisable {
     @Override
     public void fromJson(JSONObject json) {
         try {
-            if (json.has("host") && !(json.get("host") instanceof String))
-                host = new Host(json.getJSONObject("host"));
-            else {
-                host = new Host();
-                host.ip = json.getString("IP");
-                host.mac = json.getString("MAC");
-                host.name = json.getString("host");
-            }
-
-            if (json.has("snapclient"))
-                snapclient = new Snapclient(json.getJSONObject("snapclient"));
-            else {
-                snapclient = new Snapclient();
-                snapclient.version = json.getString("version");
-            }
-
-            if (json.has("config"))
-                config = new ClientConfig(json.getJSONObject("config"));
-            else {
-                config = new ClientConfig();
-                config.name = json.getString("name");
-                config.volume = new Volume(json.getJSONObject("volume"));
-                config.latency = json.getInt("latency");
-                config.stream = json.getString("stream");
-            }
+            host = new Host(json.getJSONObject("host"));
+            snapclient = new Snapclient(json.getJSONObject("snapclient"));
+            config = new ClientConfig(json.getJSONObject("config"));
 
             lastSeen = new Time_t(json.getJSONObject("lastSeen"));
             connected = json.getBoolean("connected");
+            clientId = json.optString("id", host.mac);
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -81,6 +61,7 @@ public class Client implements JsonSerialisable {
             json.put("config", config.toJson());
             json.put("lastSeen", lastSeen.toJson());
             json.put("connected", connected);
+            json.put("id", clientId);
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -99,10 +80,6 @@ public class Client implements JsonSerialisable {
         return config;
     }
 
-    public String getMac() {
-        return getHost().getMac();
-    }
-
     public Time_t getLastSeen() {
         return lastSeen;
     }
@@ -118,11 +95,22 @@ public class Client implements JsonSerialisable {
     public String getVisibleName() {
         if ((config.getName() != null) && !config.getName().isEmpty())
             return config.getName();
-        return host.getName();
+        String name = host.getName();
+        if (config.getInstance() > 1)
+            name += " #" + config.getInstance();
+        return name;
     }
 
     public boolean isConnected() {
         return connected;
+    }
+
+    public void setConnected(boolean connected) {
+        this.connected = connected;
+    }
+
+    public String getId() {
+        return clientId;
     }
 
     public boolean isDeleted() {
@@ -151,6 +139,8 @@ public class Client implements JsonSerialisable {
             return false;
         if (config != null ? !config.equals(that.config) : that.config != null) return false;
         if (connected != that.connected) return false;
+        if (clientId != null ? !clientId.equals(that.clientId) : that.clientId != null)
+            return false;
         return (deleted == that.deleted);
     }
 
@@ -160,8 +150,14 @@ public class Client implements JsonSerialisable {
         result = 31 * result + (snapclient != null ? snapclient.hashCode() : 0);
         result = 31 * result + (config != null ? config.hashCode() : 0);
         result = 31 * result + (connected ? 1 : 0);
+        result = 31 * result + (clientId != null ? clientId.hashCode() : 0);
         result = 31 * result + (deleted ? 1 : 0);
         return result;
+    }
+
+    @Override
+    public int compareTo(Client another) {
+        return getVisibleName().compareToIgnoreCase(another.getVisibleName());
     }
 }
 

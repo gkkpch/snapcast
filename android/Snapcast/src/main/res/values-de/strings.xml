@@ -2,17 +2,17 @@
     <string name="app_name">Snapcast</string>
     <string name="ticker_text">Snapclient gestartet</string>
     <string name="notification_title">Snapclient</string>
-    <string name="notification_text">Snapclient läuft...</string>
-    <string name="notification_info">Info...</string>
+    <string name="notification_text">Snapclient läuft…</string>
+    <string name="notification_info">Info…</string>
     <string name="stop">Stop</string>
     <string name="menu_details">Details</string>
     <string name="menu_delete">Löschen</string>
+    <string name="menu_group">Gruppe</string>
 
-    <!-- TODO: Remove or change this placeholder text -->
     <string name="title_activity_snapcast">Snapcast</string>
 
-    <string name="action_about">Über...</string>
-    <string name="action_settings">Einstellungen...</string>
+    <string name="action_about">Über…</string>
+    <string name="action_settings">Einstellungen…</string>
     <string name="action_scan">Suche nach Server</string>
     <string name="action_refresh">Aktualisiere Client-Liste</string>
     <string name="action_hide_offline">Verstecke offline Clients</string>
@@ -20,6 +20,7 @@
     <string name="title_activity_client_settings">Client Einstellungen</string>
     <string name="client_name">Name</string>
     <string name="client_mac">MAC</string>
+    <string name="client_id">ID</string>
     <string name="client_ip">IP</string>
     <string name="client_host">Host</string>
     <string name="client_os">Betriebssystem</string>
@@ -27,6 +28,9 @@
     <string name="client_last_seen">Zuletzt gesehen</string>
     <string name="client_latency">Latenz</string>
     <string name="online">Online</string>
+
+    <string name="title_activity_group_preference">Gruppe</string>
+
     <string name="action_play_stop">Play/Stop</string>
     <string name="client_deleted">Client %1$s gelöscht</string>
     <string name="wrong_sample_rate">Stream ist nicht in nativer sample rate: %1$d\nNative sample rate: %2$d</string>
@@ -36,7 +40,6 @@
     <string name="about_file">files/about.html</string>
     <string name="about">Über</string>
 
-    <!-- TODO: Remove or change this placeholder text -->
     <string name="client_stream">Stream</string>
     <string name="first_run_title">Warnung</string>
     <string name="first_run_text">Dies ist ein Test-Client.\nNicht für den Produktiv-Einsatz vorgesehen.</string>
@@ -45,5 +48,6 @@
     <string name="control_port">Control-Port</string>
     <string name="server_host">Snapserver host</string>
     <string name="auto_start">Auto-start Snapclient</string>
+    <string name="connect">Verbinden</string>
 </resources>
 

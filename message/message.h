@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include <vector>
 #include <sys/time.h>
 #include "common/endian.h"
+#include "common/timeDefs.h"
 
 
 template<typename CharT, typename TraitsT = std::char_traits<CharT> >
@@ -55,7 +56,11 @@ enum message_type
 	kWireChunk = 2,
 	kServerSettings = 3,
 	kTime = 4,
-	kHello = 5
+	kHello = 5,
+	kStreamTags = 6,
+
+	kFirst = kBase,
+	kLast = kStreamTags
 };
 
 
@@ -65,7 +70,7 @@ struct tv
 	tv()
 	{
 		timeval t;
-		gettimeofday(&t, NULL);
+		chronos::systemtimeofday(&t);
 		sec = t.tv_sec;
 		usec = t.tv_usec;
 	}
@@ -106,6 +111,10 @@ namespace msg
 {
 
 const size_t max_size = 1000000;
+
+struct BaseMessage;
+
+using message_ptr = std::shared_ptr<msg::BaseMessage>;
 
 struct BaseMessage
 {

@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -20,20 +20,15 @@ package de.badaix.snapcast;
 
 import android.os.Bundle;
 import android.preference.EditTextPreference;
-import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
 
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-
 import de.badaix.snapcast.control.json.Client;
-import de.badaix.snapcast.control.json.Stream;
 
 /**
  * Created by johannes on 11.01.16.
@@ -42,9 +37,9 @@ public class ClientSettingsFragment extends PreferenceFragment {
     private Client client = null;
     private Client clientOriginal = null;
     private EditTextPreference prefName;
-    private ListPreference prefStream;
     private EditTextPreference prefLatency;
     private Preference prefMac;
+    private Preference prefId;
     private Preference prefIp;
     private Preference prefHost;
     private Preference prefOS;
@@ -63,21 +58,6 @@ public class ClientSettingsFragment extends PreferenceFragment {
             e.printStackTrace();
         }
         clientOriginal = new Client(client.toJson());
-        final ArrayList<Stream> streams = new ArrayList<>();
-        try {
-            JSONArray jsonArray = new JSONArray(bundle.getString("streams"));
-            for (int i = 0; i < jsonArray.length(); i++)
-                streams.add(new Stream(jsonArray.getJSONObject(i)));
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-
-        final CharSequence[] streamNames = new CharSequence[streams.size()];
-        final CharSequence[] streamIds = new CharSequence[streams.size()];
-        for (int i = 0; i < streams.size(); ++i) {
-            streamNames[i] = streams.get(i).getName();
-            streamIds[i] = streams.get(i).getId();
-        }
 
         // Load the preferences from an XML resource
         addPreferencesFromResource(R.xml.client_preferences);
@@ -90,32 +70,9 @@ public class ClientSettingsFragment extends PreferenceFragment {
                 return true;
             }
         });
-        prefStream = (ListPreference) findPreference("pref_client_stream");
-        prefStream.setEntries(streamNames);
-        prefStream.setEntryValues(streamIds);
-        for (int i = 0; i < streams.size(); ++i) {
-            if (streamIds[i].equals(client.getConfig().getStream())) {
-                prefStream.setSummary(streamNames[i]);
-                prefStream.setValueIndex(i);
-                break;
-            }
-        }
-        prefStream.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-            @Override
-            public boolean onPreferenceChange(Preference preference, Object newValue) {
-                for (int i = 0; i < streams.size(); ++i) {
-                    if (streamIds[i].equals(newValue)) {
-                        prefStream.setSummary(streamNames[i]);
-                        client.getConfig().setStream(streamIds[i].toString());
-                        prefStream.setValueIndex(i);
-                        break;
-                    }
-                }
 
-                return false;
-            }
-        });
         prefMac = (Preference) findPreference("pref_client_mac");
+        prefId = (Preference) findPreference("pref_client_id");
         prefIp = (Preference) findPreference("pref_client_ip");
         prefHost = (Preference) findPreference("pref_client_host");
         prefOS = (Preference) findPreference("pref_client_os");
@@ -150,6 +107,7 @@ public class ClientSettingsFragment extends PreferenceFragment {
         prefName.setSummary(client.getConfig().getName());
         prefName.setText(client.getConfig().getName());
         prefMac.setSummary(client.getHost().getMac());
+        prefId.setSummary(client.getId());
         prefIp.setSummary(client.getHost().getIp());
         prefHost.setSummary(client.getHost().getName());
         prefOS.setSummary(client.getHost().getOs() + "@" + client.getHost().getArch());

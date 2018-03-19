@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -34,12 +34,6 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.support.design.widget.CoordinatorLayout;
 import android.support.design.widget.Snackbar;
-import android.support.design.widget.TabLayout;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentPagerAdapter;
-import android.support.v4.app.FragmentStatePagerAdapter;
-import android.support.v4.view.ViewPager;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -50,24 +44,28 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.UnknownHostException;
-import java.util.Vector;
+import java.util.ArrayList;
 
 import de.badaix.snapcast.control.RemoteControl;
 import de.badaix.snapcast.control.json.Client;
+import de.badaix.snapcast.control.json.Group;
 import de.badaix.snapcast.control.json.ServerStatus;
 import de.badaix.snapcast.control.json.Stream;
+import de.badaix.snapcast.control.json.Volume;
 import de.badaix.snapcast.utils.NsdHelper;
 import de.badaix.snapcast.utils.Settings;
 import de.badaix.snapcast.utils.Setup;
 
-public class MainActivity extends AppCompatActivity implements ClientItem.ClientInfoItemListener, RemoteControl.RemoteControlListener, SnapclientService.SnapclientListener, NsdHelper.NsdHelperListener {
+public class MainActivity extends AppCompatActivity implements GroupItem.GroupItemListener, RemoteControl.RemoteControlListener, SnapclientService.SnapclientListener, NsdHelper.NsdHelperListener {
 
     static final int CLIENT_PROPERTIES_REQUEST = 1;
+    static final int GROUP_PROPERTIES_REQUEST = 2;
     private static final String TAG = "Main";
     private static final String SERVICE_NAME = "Snapcast";// #2";
     boolean bound = false;
@@ -80,16 +78,12 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
     private RemoteControl remoteControl = null;
     private ServerStatus serverStatus = null;
     private SnapclientService snapclientService;
-    private SectionsPagerAdapter sectionsPagerAdapter;
-    private TabLayout tabLayout;
+    private GroupListFragment groupListFragment;
     private Snackbar warningSamplerateSnackbar = null;
     private int nativeSampleRate = 0;
     private CoordinatorLayout coordinatorLayout;
-
-    /**
-     * The {@link ViewPager} that will host the section contents.
-     */
-    private ViewPager mViewPager;
+    private Button btnConnect = null;
+    private boolean batchActive = false;
 
 
     /**
@@ -137,17 +131,14 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
         coordinatorLayout = (CoordinatorLayout) findViewById(R.id.myCoordinatorLayout);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        btnConnect = (Button) findViewById(R.id.btnConnect);
+        btnConnect.setVisibility(View.GONE);
         // Create the adapter that will return a fragment for each of the three
         // primary sections of the activity.
-        sectionsPagerAdapter = new SectionsPagerAdapter(getSupportFragmentManager());
 
-        // Set up the ViewPager with the sections adapter.
-        mViewPager = (ViewPager) findViewById(R.id.container);
-        mViewPager.setAdapter(sectionsPagerAdapter);
-
-        tabLayout = (TabLayout) findViewById(R.id.tabs);
-        tabLayout.setupWithViewPager(mViewPager);
-        mViewPager.setVisibility(View.GONE);
+        groupListFragment = (GroupListFragment) getSupportFragmentManager().findFragmentById(R.id.groupListFragment);
+        groupListFragment.setHideOffline(Settings.getInstance(this).getBoolean("hide_offline", false));
 
         setActionbarSubtitle("Host: no Snapserver found");
 
@@ -160,11 +151,10 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
             }
         }).start();
 
-        sectionsPagerAdapter.setHideOffline(Settings.getInstance(this).getBoolean("hide_offline", false));
     }
 
     public void checkFirstRun() {
-        PackageInfo pInfo = null;
+        PackageInfo pInfo;
         try {
             pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
             final int verCode = pInfo.versionCode;
@@ -195,7 +185,6 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
         boolean isChecked = Settings.getInstance(this).getBoolean("hide_offline", false);
         MenuItem menuItem = menu.findItem(R.id.action_hide_offline);
         menuItem.setChecked(isChecked);
-        sectionsPagerAdapter.setHideOffline(isChecked);
 //        setHost(host, port, controlPort);
         if (remoteControl != null) {
             updateMenuItems(remoteControl.isConnected());
@@ -241,7 +230,7 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
         } else if (id == R.id.action_hide_offline) {
             item.setChecked(!item.isChecked());
             Settings.getInstance(this).put("hide_offline", item.isChecked());
-            sectionsPagerAdapter.setHideOffline(item.isChecked());
+            groupListFragment.setHideOffline(item.isChecked());
             return true;
         } else if (id == R.id.action_refresh) {
             startRemoteControl();
@@ -363,7 +352,7 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
     @Override
     public void onLog(SnapclientService snapclientService, String timestamp, String logClass, String msg) {
         Log.d(TAG, "[" + logClass + "] " + msg);
-        if ("state".equals(logClass)) {
+        if ("Notice".equals(logClass)) {
             if (msg.startsWith("sampleformat")) {
                 msg = msg.substring(msg.indexOf(":") + 2);
                 Log.d(TAG, "sampleformat: " + msg);
@@ -407,14 +396,15 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
             return;
         }
         if (requestCode == CLIENT_PROPERTIES_REQUEST) {
-            Client client = null;
+            Client client;
             try {
                 client = new Client(new JSONObject(data.getStringExtra("client")));
             } catch (JSONException e) {
                 e.printStackTrace();
                 return;
             }
-            Client clientOriginal = null;
+
+            Client clientOriginal;
             try {
                 clientOriginal = new Client(new JSONObject(data.getStringExtra("clientOriginal")));
             } catch (JSONException e) {
@@ -424,80 +414,24 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
             Log.d(TAG, "new name: " + client.getConfig().getName() + ", old name: " + clientOriginal.getConfig().getName());
             if (!client.getConfig().getName().equals(clientOriginal.getConfig().getName()))
                 remoteControl.setName(client, client.getConfig().getName());
-            Log.d(TAG, "new stream: " + client.getConfig().getStream() + ", old stream: " + clientOriginal.getConfig().getStream());
-            if (!client.getConfig().getStream().equals(clientOriginal.getConfig().getStream()))
-                remoteControl.setStream(client, client.getConfig().getStream());
             Log.d(TAG, "new latency: " + client.getConfig().getLatency() + ", old latency: " + clientOriginal.getConfig().getLatency());
             if (client.getConfig().getLatency() != clientOriginal.getConfig().getLatency())
                 remoteControl.setLatency(client, client.getConfig().getLatency());
             serverStatus.updateClient(client);
-            sectionsPagerAdapter.updateServer(serverStatus);
-        }
-    }
-
-    @Override
-    public void onConnected(RemoteControl remoteControl) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mViewPager.setVisibility(View.VISIBLE);
+            groupListFragment.updateServer(MainActivity.this.serverStatus);
+        } else if (requestCode == GROUP_PROPERTIES_REQUEST) {
+            String groupId = data.getStringExtra("group");
+            boolean changed = false;
+            if (data.hasExtra("clients")) {
+                ArrayList<String> clients = data.getStringArrayListExtra("clients");
+                remoteControl.setClients(groupId, clients);
             }
-        });
-        setActionbarSubtitle(remoteControl.getHost());
-        remoteControl.getServerStatus();
-        updateMenuItems(true);
-    }
-
-    @Override
-    public void onConnecting(RemoteControl remoteControl) {
-        setActionbarSubtitle("connecting: " + remoteControl.getHost());
-    }
-
-    @Override
-    public void onDisconnected(RemoteControl remoteControl, Exception e) {
-        Log.d(TAG, "onDisconnected");
-        serverStatus = new ServerStatus();
-        sectionsPagerAdapter.updateServer(serverStatus);
-        if (e != null) {
-            if (e instanceof UnknownHostException)
-                setActionbarSubtitle("error: unknown host");
-            else
-                setActionbarSubtitle("error: " + e.getMessage());
-        } else {
-            setActionbarSubtitle("not connected");
-        }
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                mViewPager.setVisibility(View.GONE);
+            if (data.hasExtra("stream")) {
+                String streamId = data.getStringExtra("stream");
+                remoteControl.setStream(groupId, streamId);
+                onStreamChanged(RemoteControl.RPCEvent.response, groupId, streamId);
             }
-        });
-        updateMenuItems(false);
-    }
-
-    @Override
-    public void onClientEvent(RemoteControl remoteControl, Client client, RemoteControl.ClientEvent event) {
-        Log.d(TAG, "onClientEvent: " + event.toString());
-        if (event == RemoteControl.ClientEvent.deleted)
-            serverStatus.removeClient(client);
-        else
-            serverStatus.updateClient(client);
-
-        sectionsPagerAdapter.updateServer(serverStatus);
-    }
-
-    @Override
-    public void onServerStatus(RemoteControl remoteControl, ServerStatus serverStatus) {
-        this.serverStatus = serverStatus;
-        for (Stream s : serverStatus.getStreams())
-            Log.d(TAG, s.toString());
-        sectionsPagerAdapter.updateServer(serverStatus);
-    }
-
-    @Override
-    public void onStreamUpdate(RemoteControl remoteControl, Stream stream) {
-        serverStatus.updateStream(stream);
-        sectionsPagerAdapter.updateServer(serverStatus);
+        }
     }
 
 
@@ -549,30 +483,34 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
     @Override
     public void onResolved(NsdHelper nsdHelper, NsdServiceInfo serviceInfo) {
         Log.d(TAG, "resolved: " + serviceInfo);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            setHost(serviceInfo.getHost().getCanonicalHostName(), serviceInfo.getPort(), serviceInfo.getPort() + 1);
-            startRemoteControl();
-        }
+        setHost(serviceInfo.getHost().getCanonicalHostName(), serviceInfo.getPort(), serviceInfo.getPort() + 1);
+        startRemoteControl();
         NsdHelper.getInstance(this).stopListening();
     }
 
 
     @Override
-    public void onVolumeChanged(ClientItem clientItem, int percent) {
-        remoteControl.setVolume(clientItem.getClient(), percent);
+    public void onGroupVolumeChanged(GroupItem groupItem) {
+        remoteControl.setGroupVolume(groupItem.getGroup());
     }
 
     @Override
-    public void onMute(ClientItem clientItem, boolean mute) {
-        remoteControl.setMute(clientItem.getClient(), mute);
+    public void onMute(GroupItem groupItem, boolean mute) {
+        remoteControl.setGroupMuted(groupItem.getGroup(), mute);
     }
 
     @Override
-    public void onDeleteClicked(final ClientItem clientItem) {
+    public void onVolumeChanged(GroupItem groupItem, ClientItem clientItem, int percent, boolean mute) {
+        remoteControl.setVolume(clientItem.getClient(), percent, mute);
+    }
+
+    @Override
+    public void onDeleteClicked(GroupItem groupItem, final ClientItem clientItem) {
         final Client client = clientItem.getClient();
         client.setDeleted(true);
+
         serverStatus.updateClient(client);
-        sectionsPagerAdapter.updateServer(serverStatus);
+        groupListFragment.updateServer(serverStatus);
         Snackbar mySnackbar = Snackbar.make(findViewById(R.id.myCoordinatorLayout),
                 getString(R.string.client_deleted, client.getVisibleName()),
                 Snackbar.LENGTH_SHORT);
@@ -581,10 +519,10 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
             public void onClick(View v) {
                 client.setDeleted(false);
                 serverStatus.updateClient(client);
-                sectionsPagerAdapter.updateServer(serverStatus);
+                groupListFragment.updateServer(serverStatus);
             }
         });
-        mySnackbar.setCallback(new Snackbar.Callback() {
+        mySnackbar.addCallback(new Snackbar.Callback() {
             @Override
             public void onDismissed(Snackbar snackbar, int event) {
                 super.onDismissed(snackbar, event);
@@ -595,90 +533,206 @@ public class MainActivity extends AppCompatActivity implements ClientItem.Client
             }
         });
         mySnackbar.show();
+
     }
 
     @Override
-    public void onPropertiesClicked(ClientItem clientItem) {
+    public void onClientPropertiesClicked(GroupItem groupItem, ClientItem clientItem) {
         Intent intent = new Intent(this, ClientSettingsActivity.class);
         intent.putExtra("client", clientItem.getClient().toJson().toString());
-        intent.putExtra("streams", serverStatus.getJsonStreams().toString());
         intent.setFlags(0);
         startActivityForResult(intent, CLIENT_PROPERTIES_REQUEST);
     }
 
     @Override
-    public void onStreamClicked(ClientItem clientItem, Stream stream) {
-        Client client = clientItem.getClient();
-        client.getConfig().setStream(stream.getId());
-        remoteControl.setStream(client, client.getConfig().getStream());
-        serverStatus.updateClient(client);
-        sectionsPagerAdapter.updateServer(serverStatus);
+    public void onPropertiesClicked(GroupItem groupItem) {
+        Intent intent = new Intent(this, GroupSettingsActivity.class);
+        intent.putExtra("serverStatus", serverStatus.toJson().toString());
+        intent.putExtra("group", groupItem.getGroup().toJson().toString());
+        intent.setFlags(0);
+        startActivityForResult(intent, GROUP_PROPERTIES_REQUEST);
+    }
+
+    @Override
+    public void onConnected(RemoteControl remoteControl) {
+        setActionbarSubtitle(remoteControl.getHost());
+        remoteControl.getServerStatus();
+        updateMenuItems(true);
+    }
+
+    @Override
+    public void onConnecting(RemoteControl remoteControl) {
+        setActionbarSubtitle("connecting: " + remoteControl.getHost());
+    }
+
+    @Override
+    public void onDisconnected(RemoteControl remoteControl, Exception e) {
+        Log.d(TAG, "onDisconnected");
+        serverStatus = new ServerStatus();
+        groupListFragment.updateServer(serverStatus);
+        if (e != null) {
+            if (e instanceof UnknownHostException)
+                setActionbarSubtitle("error: unknown host");
+            else
+                setActionbarSubtitle("error: " + e.getMessage());
+        } else {
+            setActionbarSubtitle("not connected");
+        }
+        updateMenuItems(false);
     }
 
 
-    /**
-     * A {@link FragmentPagerAdapter} that returns a fragment corresponding to
-     * one of the sections/tabs/pages.
-     */
-    public class SectionsPagerAdapter extends FragmentStatePagerAdapter {
+    @Override
+    public void onBatchStart() {
+        batchActive = true;
+    }
 
-        private Vector<ClientListFragment> fragments = new Vector<>();
-        private int streamCount = 0;
-        private boolean hideOffline = false;
 
-        public SectionsPagerAdapter(FragmentManager fm) {
-            super(fm);
+    @Override
+    public void onBatchEnd() {
+        batchActive = false;
+        groupListFragment.updateServer(serverStatus);
+    }
+
+
+
+/*
+    @Override
+    public void onClientEvent(RemoteControl remoteControl, RemoteControl.RpcEvent rpcEvent, Client client, RemoteControl.ClientEvent event) {
+        Log.d(TAG, "onClientEvent: " + event.toString());
+        /// update only in case of notifications
+        if (rpcEvent == RemoteControl.RpcEvent.response)
+            return;
+
+        serverStatus.updateClient(client);
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onServerUpdate(RemoteControl remoteControl, RemoteControl.RpcEvent rpcEvent, ServerStatus serverStatus) {
+        this.serverStatus = serverStatus;
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onStreamUpdate(RemoteControl remoteControl, RemoteControl.RpcEvent rpcEvent, Stream stream) {
+        serverStatus.updateStream(stream);
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onGroupUpdate(RemoteControl remoteControl, RemoteControl.RpcEvent rpcEvent, Group group) {
+        serverStatus.updateGroup(group);
+        groupListFragment.updateServer(serverStatus);
+    }
+*/
+
+    @Override
+    public void onConnect(Client client) {
+        serverStatus.getClient(client.getId());
+        if (client == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        client.setConnected(true);
+        serverStatus.updateClient(client);
+        groupListFragment.updateServer(serverStatus);
+    }
 
-        public void updateServer(final ServerStatus serverStatus) {
-            MainActivity.this.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Log.d(TAG, "updateServer: " + serverStatus.getStreams().size());
-                    boolean changed = (serverStatus.getStreams().size() != streamCount);
-
-                    while (serverStatus.getStreams().size() > fragments.size())
-                        fragments.add(new ClientListFragment());
-
-                    for (int i = 0; i < serverStatus.getStreams().size(); ++i) {
-                        fragments.get(i).setStream(serverStatus.getStreams().get(i));
-                        fragments.get(i).updateServer(serverStatus);
-                    }
-
-                    if (changed) {
-                        streamCount = serverStatus.getStreams().size();
-                        notifyDataSetChanged();
-                        tabLayout.setTabsFromPagerAdapter(SectionsPagerAdapter.this);
-                    }
-                    setHideOffline(hideOffline);
-                }
-
-            });
-
+    @Override
+    public void onDisconnect(String clientId) {
+        Client client = serverStatus.getClient(clientId);
+        if (client == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        client.setConnected(false);
+        serverStatus.updateClient(client);
+        groupListFragment.updateServer(serverStatus);
+    }
 
-        public void setHideOffline(boolean hide) {
-            this.hideOffline = hide;
-            for (ClientListFragment clientListFragment : fragments)
-                clientListFragment.setHideOffline(hide);
+    @Override
+    public void onUpdate(Client client) {
+        serverStatus.updateClient(client);
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onVolumeChanged(RemoteControl.RPCEvent event, String clientId, Volume volume) {
+        if (event == RemoteControl.RPCEvent.response)
+            return;
+        Client client = serverStatus.getClient(clientId);
+        if (client == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        client.setVolume(volume);
+        if (!batchActive)
+            groupListFragment.updateServer(serverStatus);
+    }
 
-        @Override
-        public Fragment getItem(int position) {
-            return fragments.get(position);
+    @Override
+    public void onLatencyChanged(RemoteControl.RPCEvent event, String clientId, long latency) {
+        Client client = serverStatus.getClient(clientId);
+        if (client == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        client.getConfig().setLatency((int) latency);
+        groupListFragment.updateServer(serverStatus);
+    }
 
-        @Override
-        public int getCount() {
-            return streamCount;
+    @Override
+    public void onNameChanged(RemoteControl.RPCEvent event, String clientId, String name) {
+        Client client = serverStatus.getClient(clientId);
+        if (client == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        client.getConfig().setName(name);
+        groupListFragment.updateServer(serverStatus);
+    }
 
-        @Override
-        public CharSequence getPageTitle(int position) {
-            return fragments.get(position).getName();
+    @Override
+    public void onUpdate(Group group) {
+        serverStatus.updateGroup(group);
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onMute(RemoteControl.RPCEvent event, String groupId, boolean mute) {
+        Group g = serverStatus.getGroup(groupId);
+        if (g == null) {
+            remoteControl.getServerStatus();
+            return;
         }
+        g.setMuted(mute);
+        serverStatus.updateGroup(g);
+        groupListFragment.updateServer(serverStatus);
+    }
 
+    @Override
+    public void onStreamChanged(RemoteControl.RPCEvent event, String groupId, String streamId) {
+        Group g = serverStatus.getGroup(groupId);
+        if (g == null) {
+            remoteControl.getServerStatus();
+            return;
+        }
+        g.setStreamId(streamId);
+        serverStatus.updateGroup(g);
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onUpdate(ServerStatus server) {
+        this.serverStatus = server;
+        groupListFragment.updateServer(serverStatus);
+    }
+
+    @Override
+    public void onUpdate(String streamId, Stream stream) {
+        serverStatus.updateStream(stream);
+        groupListFragment.updateServer(serverStatus);
     }
 }
-
 

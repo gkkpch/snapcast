@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,10 +16,12 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include <regex>
 #include "spotifyStream.h"
 #include "common/snapException.h"
+#include "common/utils/string_utils.h"
 #include "common/utils.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -34,16 +36,34 @@ SpotifyStream::SpotifyStream(PcmListener* pcmListener, const StreamUri& uri) : P
 
 	string username = uri_.getQuery("username", "");
 	string password = uri_.getQuery("password", "");
+	string cache = uri_.getQuery("cache", "");
+	string volume = uri_.getQuery("volume", "");
 	string bitrate = uri_.getQuery("bitrate", "320");
 	string devicename = uri_.getQuery("devicename", "Snapcast");
+	string onstart = uri_.getQuery("onstart", "");
+	string onstop = uri_.getQuery("onstop", "");
 
-	if (username.empty())
-		throw SnapException("missing parameter \"username\"");
-	if (password.empty())
-		throw SnapException("missing parameter \"password\"");
+	if (username.empty() != password.empty())
+		throw SnapException("missing parameter \"username\" or \"password\" (must provide both, or neither)");
 
-	params_ = "--name \"" + devicename + "\" --username \"" + username + "\" --password \"" + password + "\" --bitrate " + bitrate + " --backend stdout";
-//	logO << "params: " << params << "\n";
+	params_ = "--name \"" + devicename + "\"";
+	if (!username.empty() && !password.empty())
+		params_ += " --username \"" + username + "\" --password \"" + password + "\"";
+	params_ += " --bitrate " + bitrate + " --backend pipe";
+	if (!cache.empty())
+		params_ += " --cache \"" + cache + "\"";
+	if (!volume.empty())
+		params_ += " --initial-volume \"" + volume + "\"";
+	if (!onstart.empty())
+		params_ += " --onstart \"" + onstart + "\"";
+	if (!onstop.empty())
+		params_ += " --onstop \"" + onstop + "\"";
+
+	if (uri_.query.find("username") != uri_.query.end())
+		uri_.query["username"] = "xxx";
+	if (uri_.query.find("password") != uri_.query.end())
+		uri_.query["password"] = "xxx";
+//	LOG(INFO) << "params: " << params << "\n";
 }
 
 
@@ -76,6 +96,12 @@ void SpotifyStream::initExeAndPath(const std::string& filename)
 
 void SpotifyStream::onStderrMsg(const char* buffer, size_t n)
 {
+	static bool libreelec_patched = false;
+	smatch m;
+
+	// Watch stderr for 'Loading track' messages and set the stream metadata
+	// For more than track name check: https://github.com/plietar/librespot/issues/154
+
 	/// Watch will kill librespot if there was no message received for 130min
 	// 2016-11-02 22-05-15 [out] TRACE:librespot::stream: allocated stream 3580
 	// 2016-11-02 22-05-15 [Debug] DEBUG:librespot::audio_file2: Got channel 3580
@@ -94,13 +120,45 @@ void SpotifyStream::onStderrMsg(const char* buffer, size_t n)
 	// 2016-11-03 09-00-18 [out] INFO:librespot::session: Connecting to AP lon3-accesspoint-a34.ap.spotify.com:443
 	// 2016-11-03 09-00-18 [out] INFO:librespot::session: Authenticated !
 	watchdog_->trigger();
-	string logmsg = trim_copy(string(buffer, n));
+	string logmsg = utils::string::trim_copy(string(buffer, n));
+
 	if ((logmsg.find("allocated stream") == string::npos) &&
 		(logmsg.find("Got channel") == string::npos) &&
 		(logmsg.find('\0') == string::npos) &&
 		(logmsg.size() > 4))
 	{
-		logO << "(" << getName() << ") " << logmsg << "\n";
+		LOG(INFO) << "(" << getName() << ") " << logmsg << "\n";
+	}
+
+	// Librespot patch:
+	// 	info!("metadata:{{\"ARTIST\":\"{}\",\"TITLE\":\"{}\"}}", artist.name, track.name);
+	// non patched:
+	// 	info!("Track \"{}\" loaded", track.name);
+
+	// If we detect a patched libreelec we don't want to bother with this anymoer
+	// to avoid duplicate metadata pushes
+	if (!libreelec_patched)
+	{
+		static regex re_nonpatched("Track \"(.*)\" loaded");
+ 		if(regex_search(logmsg, m, re_nonpatched))
+		{
+			LOG(INFO) << "metadata: <" << m[1] << ">\n";
+
+			json jtag = {
+               			{"TITLE", (string)m[1]}
+			};
+			setMeta(jtag);
+		}
+	}
+
+	// Parse the patched version
+	static regex re_patched("metadata:(.*)");
+	if (regex_search(logmsg, m, re_patched)) 
+	{
+		LOG(INFO) << "metadata: <" << m[1] << ">\n";
+
+		setMeta(json::parse(m[1].str()));
+		libreelec_patched = true;
 	}
 }
 
@@ -116,7 +174,7 @@ void SpotifyStream::stderrReader()
 
 void SpotifyStream::onTimeout(const Watchdog* watchdog, size_t ms)
 {
-	logE << "Spotify timeout: " << ms / 1000 << "\n";
+	LOG(ERROR) << "Spotify timeout: " << ms / 1000 << "\n";
 	if (process_)
 		process_->kill();
 }

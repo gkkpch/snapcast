@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -41,15 +41,19 @@ public:
 	virtual ~CoreAudioPlayer();
 
 	void playerCallback(AudioQueueRef queue, AudioQueueBufferRef bufferRef);
+	static std::vector<PcmDevice> pcm_list(void);
 
 protected:
 	virtual void worker();
+	void initAudioQueue();
+	void uninitAudioQueue(AudioQueueRef queue);
 
 	AudioQueueTimelineRef timeLine_;
 	size_t ms_;
 	size_t frames_;
 	size_t buff_size_;
 	std::shared_ptr<Stream> pubStream_;
+	long lastChunkTick;
 };
 
 

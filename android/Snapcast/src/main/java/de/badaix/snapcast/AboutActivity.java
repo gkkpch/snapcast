@@ -1,6 +1,6 @@
 /*
  *     This file is part of snapcast
- *     Copyright (C) 2014-2016  Johannes Pohl
+ *     Copyright (C) 2014-2018  Johannes Pohl
  *
  *     This program is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -30,8 +30,11 @@ public class AboutActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_about);
-        getSupportActionBar().setTitle(getString(R.string.about) + " Snapcast");
-        PackageInfo pInfo = null;
+        try {
+            getSupportActionBar().setTitle(getString(R.string.about) + " Snapcast");
+        } catch (Exception e) {
+        }
+        PackageInfo pInfo;
         try {
             pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
             getSupportActionBar().setSubtitle("v" + pInfo.versionName);

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@
 #include "stream.h"
 #include "pcmDevice.h"
 #include "common/endian.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 /// Audio Player
@@ -47,6 +47,9 @@ public:
 
 protected:
 	virtual void worker() = 0;
+
+	void setVolume_poly(double volume, double exp);
+	void setVolume_exp(double volume, double base);
 
 	template <typename T>
 	void adjustVolume(char *buffer, size_t count, double volume)
